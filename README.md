@@ -1334,3 +1334,981 @@ The next chapter formalizes these ideas mathematically and derives the complete 
 
 
 In the next chapter we examine why recurrent architectures struggled to satisfy these requirements and why a fundamentally different approach became necessary.
+
+
+# Part II — Self Attention Mathematics
+
+# Chapter 4 — From Similarity to Self-Attention
+
+## Introduction
+
+In the previous chapter we introduced the central idea behind attention:
+
+> Every token should be able to directly inspect every other token and determine which pieces of information are relevant.
+
+This solved one of the major limitations of recurrent neural networks. Instead of forcing information to travel through long chains of hidden states, attention allows direct token-to-token interaction.
+
+However, an important question remains:
+
+> How can a token determine which other tokens are relevant?
+
+This chapter introduces the first mathematical formulation of self-attention. We begin with a simple attention mechanism based on vector similarity and gradually develop the Query-Key-Value framework used in modern Transformers.
+
+---
+
+# 4.1 Contextual Embeddings
+
+Traditional word embeddings assign a fixed vector to every word.
+
+For example:
+
+```text
+Apple
+```
+
+might correspond to some embedding:
+
+```text
+EApple
+```
+
+The problem is that the meaning of a word depends on context.
+
+Consider:
+
+```text
+Love Apple Phones
+```
+
+and
+
+```text
+Love Apple Juice
+```
+
+The meaning of:
+
+```text
+Apple
+```
+
+is different in the two sentences.
+
+Therefore we would like to create a new representation:
+
+```text
+EApple'
+```
+
+that depends on surrounding words.
+
+One possible representation is:
+
+```text
+EApple'
+=
+0.1 ELove
++
+0.5 EApple
++
+0.4 EPhones
+```
+
+For the sentence:
+
+```text
+Love Apple Phones
+```
+
+while for:
+
+```text
+Love Apple Juice
+```
+
+we may obtain:
+
+```text
+EApple'
+=
+0.1 ELove
++
+0.5 EApple
++
+0.4 EJuice
+```
+
+Notice that the contextual embedding is no longer determined solely by the word itself.
+
+Instead, it becomes a weighted combination of information gathered from surrounding words.
+
+This is the central goal of self-attention:
+
+> Construct context-dependent embeddings from surrounding information.
+
+---
+
+# 4.2 Similarity as a Measure of Relevance
+
+The next question is:
+
+> How should we determine the weights?
+
+Where do the numbers:
+
+```text
+0.1
+0.5
+0.4
+```
+
+come from?
+
+To answer this we need a way to measure the relationship between words.
+
+Since embeddings are vectors, a natural choice is vector similarity.
+
+Suppose we have two embeddings:
+
+```text
+Ea
+Eb
+```
+
+A simple similarity measure is the dot product:
+
+E_a^T E_b
+
+Geometrically:
+
+### Large Positive Value
+
+The vectors point in similar directions.
+
+```text
+high similarity
+```
+
+### Near Zero
+
+The vectors are approximately orthogonal.
+
+```text
+little relationship
+```
+
+### Negative Value
+
+The vectors point in opposing directions.
+
+```text
+low similarity
+```
+
+The dot product therefore provides a natural measure of how strongly two words are related.
+
+---
+
+# 4.3 Naive Attention
+
+Suppose we wish to construct:
+
+```text
+EApple'
+```
+
+for:
+
+```text
+Love Apple Phones
+```
+
+We can compute similarities:
+
+```text
+EApple · ELoveᵀ
+EApple · EAppleᵀ
+EApple · EPhonesᵀ
+```
+
+These scores indicate how relevant each word is to Apple.
+
+For example:
+
+```text
+Love   → 2
+Apple  → 5
+Phones → 4
+```
+
+The larger the score, the more influence that word should have when constructing the new embedding.
+
+However, these values are not yet suitable as weights.
+
+---
+
+# 4.4 Why Softmax Is Necessary
+
+The similarity scores obtained from dot products have several problems.
+
+They may be:
+
+* negative
+* larger than one
+* difficult to interpret probabilistically
+
+For example:
+
+```text
+2
+5
+4
+```
+
+do not tell us how much influence each word should contribute.
+
+We therefore apply the Softmax transformation:
+
+\mathrm{softmax}(z_i)=\frac{e^{z_i}}{\sum_j e^{z_j}}
+
+Softmax has several useful properties:
+
+### Positivity
+
+All outputs are positive.
+
+### Normalization
+
+The outputs sum to one.
+
+### Relative Importance
+
+Larger scores receive larger weights.
+
+For example:
+
+```text
+2
+5
+4
+```
+
+might become:
+
+```text
+0.04
+0.67
+0.29
+```
+
+These values can now be interpreted as attention weights.
+
+---
+
+# 4.5 Constructing New Embeddings
+
+After applying Softmax we obtain attention weights:
+
+```text
+x1
+x2
+x3
+```
+
+We then compute:
+
+```text
+EApple'
+=
+x1 ELove
++
+x2 EApple
++
+x3 EPhones
+```
+
+This operation performs a weighted average of surrounding information.
+
+The resulting embedding contains information gathered from the entire sentence.
+
+This process transforms static embeddings into contextual embeddings.
+
+---
+
+# 4.6 Limitations of Naive Attention
+
+Although this approach is intuitive, it contains two major problems.
+
+---
+
+## Problem 1: No Learnable Parameters
+
+The attention mechanism currently relies only on existing embeddings.
+
+Nothing is being learned.
+
+The model cannot adapt its notion of relevance during training.
+
+As a result, its representational power is limited.
+
+---
+
+## Problem 2: Symmetric Relationships
+
+The dot product satisfies:
+
+E_a^T E_b = E_b^T E_a
+
+Therefore:
+
+```text
+similarity(Apple, Phones)
+=
+similarity(Phones, Apple)
+```
+
+This symmetry is problematic because language relationships are often directional.
+
+Consider:
+
+```text
+dog chases cat
+```
+
+The relationship:
+
+```text
+dog → cat
+```
+
+is not identical to:
+
+```text
+cat → dog
+```
+
+We therefore require a richer representation.
+
+---
+
+# 4.7 Query, Key and Value
+
+To solve these limitations, Transformers introduce three learned projections.
+
+Starting from an embedding:
+
+```text
+E
+```
+
+we compute:
+
+Q = EW_Q
+
+K = EW_K
+
+V = EW_V
+
+where:
+
+```text
+WQ
+WK
+WV
+```
+
+are learnable parameter matrices.
+
+---
+
+## Query
+
+Represents:
+
+> What information am I searching for?
+
+---
+
+## Key
+
+Represents:
+
+> What information do I offer?
+
+---
+
+## Value
+
+Represents:
+
+> What information should be transferred if selected?
+
+---
+
+# 4.8 Self-Attention with Q, K and V
+
+Consider again:
+
+```text
+Love Apple Phones
+```
+
+We compute:
+
+```text
+QApple = EApple WQ
+KApple = EApple WK
+VApple = EApple WV
+```
+
+and similarly for all other words.
+
+To determine what information Apple should receive we compute:
+
+```text
+QApple · KLoveᵀ
+QApple · KAppleᵀ
+QApple · KPhonesᵀ
+```
+
+These scores are transformed using Softmax:
+
+```text
+x1
+x2
+x3
+```
+
+We then construct:
+
+```text
+EApple'
+=
+x1 VLove
++
+x2 VApple
++
+x3 VPhones
+```
+
+The resulting embedding now depends on learned notions of relevance rather than raw embedding similarity.
+
+This significantly increases the expressive power of the model.
+
+---
+
+# 4.9 Parallel Computation
+
+One of the most important properties of self-attention is that all contextual embeddings can be computed simultaneously.
+
+For:
+
+```text
+Love Apple Phones
+```
+
+we compute:
+
+```text
+ELove'
+EApple'
+EPhones'
+```
+
+independently.
+
+There is no recurrent chain:
+
+```text
+word1
+→ word2
+→ word3
+```
+
+as in RNNs.
+
+This enables massive parallelization on modern hardware.
+
+The ability to process all tokens simultaneously is one of the primary reasons Transformers scale so effectively.
+
+---
+
+# Key Insight
+
+Self-attention transforms fixed word embeddings into contextual representations.
+
+The process consists of:
+
+1. Measuring relevance between words.
+2. Converting relevance scores into attention weights.
+3. Gathering information from surrounding words.
+4. Constructing new context-dependent embeddings.
+
+Query, Key and Value projections introduce learnable parameters and directional relationships, making attention significantly more expressive than simple embedding similarity.
+
+---
+
+# Summary
+
+In this chapter we developed the first mathematical version of self-attention.
+
+We introduced:
+
+* contextual embeddings,
+* similarity-based attention,
+* Softmax attention weights,
+* limitations of naive attention,
+* Query-Key-Value representations,
+* and the construction of context-dependent embeddings.
+
+We also observed that all attention computations can be performed in parallel, eliminating one of the major limitations of recurrent architectures.
+
+In the next chapter we derive the complete scaled dot-product attention mechanism and explain why modern Transformers compute:
+
+Attention(Q,K,V) = Softmax(QKᵀ / √dk)V
+
+instead of the simpler formulation introduced here.
+
+# Part II — Self Attention Mathematics
+
+# Chapter 5 — Scaled Dot Product Attention
+
+## Introduction
+
+In the previous chapter we developed the fundamental idea of self-attention.
+
+Starting from a token embedding, we:
+
+1. Measured similarity between words.
+2. Converted similarity scores into attention weights.
+3. Used these weights to aggregate information from surrounding words.
+4. Constructed contextual embeddings.
+
+We also introduced the Query-Key-Value framework:
+
+```text
+Q = XWQ
+K = XWK
+V = XWV
+```
+
+However, an important question remains:
+
+> Why do modern Transformers compute attention using:
+
+Attention(Q,K,V) = Softmax(QKᵀ/√dk)V
+
+instead of simply:
+
+```text
+Softmax(QKᵀ)V
+```
+
+The answer lies in the statistical properties of high-dimensional vectors and the behavior of the Softmax function.
+
+---
+
+# 5.1 Review of Self-Attention
+
+Consider the sentence:
+
+```text
+Love Apple Phones
+```
+
+Suppose we wish to compute a contextual representation for:
+
+```text
+Apple
+```
+
+We first create:
+
+```text
+QApple
+```
+
+representing:
+
+> What information am I searching for?
+
+```text
+KLove
+KApple
+KPhones
+```
+
+representing:
+
+> What information do these words offer?
+
+and
+
+```text
+VLove
+VApple
+VPhones
+```
+
+representing:
+
+> What information should be transferred?
+
+We then compute similarity scores:
+
+```text
+QApple · KLoveᵀ
+QApple · KAppleᵀ
+QApple · KPhonesᵀ
+```
+
+These scores determine how strongly Apple should attend to each word.
+
+---
+
+# 5.2 Matrix Formulation
+
+For a sequence containing multiple tokens we collect all Query vectors into a matrix:
+
+```text
+Q
+```
+
+all Key vectors into:
+
+```text
+K
+```
+
+and all Value vectors into:
+
+```text
+V
+```
+
+Instead of computing similarities one word at a time, we compute all similarities simultaneously:
+
+QK^T
+
+The result is called the attention score matrix.
+
+Each element:
+
+```text
+(i,j)
+```
+
+contains the similarity between:
+
+```text
+token i
+```
+
+and
+
+```text
+token j
+```
+
+This matrix contains all pairwise token relationships.
+
+---
+
+# 5.3 The Variance Problem
+
+Suppose Query and Key vectors have dimension:
+
+```text
+dk
+```
+
+For example:
+
+```text
+dk = 64
+```
+
+or
+
+```text
+dk = 128
+```
+
+or
+
+```text
+dk = 512
+```
+
+The dot product is:
+
+QK^T=\sum_{i=1}^{d_k}q_i k_i
+
+Assume:
+
+```text
+E[qᵢ] = 0
+E[kᵢ] = 0
+```
+
+and
+
+```text
+Var(qᵢ)=1
+Var(kᵢ)=1
+```
+
+for all dimensions.
+
+Then each term:
+
+```text
+qᵢkᵢ
+```
+
+has approximately unit variance.
+
+Since variances add:
+
+Var(QK^T)\approx d_k
+
+This means that the variance of attention scores grows linearly with dimensionality.
+
+---
+
+# 5.4 Why Increasing Variance Is Dangerous
+
+Consider:
+
+```text
+dk = 1
+```
+
+Attention scores may look like:
+
+```text
+[1.2, 0.8, -0.4]
+```
+
+Now suppose:
+
+```text
+dk = 512
+```
+
+The scores may become:
+
+```text
+[35, 12, -8]
+```
+
+The magnitudes become significantly larger.
+
+At first this may seem harmless.
+
+However, these values are passed into Softmax.
+
+---
+
+# 5.5 Softmax Saturation
+
+Recall:
+
+\mathrm{softmax}(z_i)=\frac{e^{z_i}}{\sum_j e^{z_j}}
+
+Suppose the attention scores are:
+
+```text
+[2,1,0]
+```
+
+Softmax produces:
+
+```text
+[0.67, 0.24, 0.09]
+```
+
+which is relatively smooth.
+
+Now consider:
+
+```text
+[30,2,-5]
+```
+
+Softmax produces something close to:
+
+```text
+[1,0,0]
+```
+
+Almost all probability mass concentrates on a single token.
+
+The distribution becomes extremely peaked.
+
+This phenomenon is known as **Softmax saturation**.
+
+---
+
+# 5.6 Why Softmax Saturation Hurts Training
+
+A saturated Softmax creates two major problems.
+
+### Problem 1
+
+Attention becomes overly confident.
+
+One token receives nearly all attention while all others are ignored.
+
+### Problem 2
+
+Gradients become very small.
+
+The optimization process receives less useful information.
+
+The chain is:
+
+```text
+Large variance
+↓
+Large dot products
+↓
+Softmax saturation
+↓
+Tiny gradients
+↓
+Difficult optimization
+```
+
+This is the real reason scaling is necessary.
+
+---
+
+# 5.7 Variance Stabilization
+
+A basic property of variance states:
+
+Var(aX)=a^2 Var(X)
+
+We already know:
+
+Var(QK^T)\approx d_k
+
+Suppose we divide the dot product by:
+
+\sqrt{d_k}
+
+Then:
+
+Var\left(\frac{QK^T}{\sqrt{d_k}}\right)=\frac{1}{d_k}Var(QK^T)
+
+Substituting:
+
+Var(QK^T)\approx d_k
+
+gives:
+
+Var\left(\frac{QK^T}{\sqrt{d_k}}\right)\approx 1
+
+The variance becomes approximately constant regardless of dimensionality.
+
+---
+
+# 5.8 Scaled Dot Product Attention
+
+We can now define the complete attention mechanism.
+
+First compute attention scores:
+
+\frac{QK^T}{\sqrt{d_k}}
+
+Next apply Softmax:
+
+\mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)
+
+Finally aggregate Value vectors:
+
+\mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+
+This operation is called **Scaled Dot Product Attention**.
+
+---
+
+# 5.9 Interpretation of the Formula
+
+Each component has a specific meaning.
+
+### Q
+
+Defines what information each token is searching for.
+
+### K
+
+Defines what information each token offers.
+
+### QKᵀ
+
+Measures pairwise token similarity.
+
+### 1/√dk
+
+Stabilizes variance and prevents Softmax saturation.
+
+### Softmax
+
+Converts similarities into attention weights.
+
+### V
+
+Contains information that will be aggregated.
+
+The final output is a collection of contextual embeddings.
+
+---
+
+# Key Insight
+
+The scaling factor:
+
+```text
+1/√dk
+```
+
+is not an arbitrary design choice.
+
+It arises naturally from variance propagation in high-dimensional spaces.
+
+Without scaling:
+
+* attention scores grow with dimension,
+* Softmax saturates,
+* gradients become small,
+* training becomes unstable.
+
+Scaling preserves approximately constant variance and enables efficient optimization.
+
+---
+
+# Summary
+
+In this chapter we derived the complete self-attention equation used in modern Transformers.
+
+We showed that:
+
+1. Dot-product variance grows with dimension.
+2. Large attention scores cause Softmax saturation.
+3. Saturated Softmax leads to small gradients.
+4. Scaling by √dk stabilizes variance.
+5. Stable variance improves optimization.
+
+These observations lead directly to the modern attention equation:
+
+Attention(Q,K,V) = Softmax(QKᵀ/√dk)V
+
+This mechanism forms the mathematical foundation of every Transformer architecture.
+
+The next chapter introduces Multi-Head Attention and explains why a single attention mechanism is insufficient for modeling the many different relationships that exist within natural language.
+
+
+
+
