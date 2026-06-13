@@ -2310,5 +2310,527 @@ This mechanism forms the mathematical foundation of every Transformer architectu
 The next chapter introduces Multi-Head Attention and explains why a single attention mechanism is insufficient for modeling the many different relationships that exist within natural language.
 
 
+# Part II — Self Attention Mathematics
+
+# Chapter 6 — Multi-Head Attention
+
+## Introduction
+
+In the previous chapter we derived the complete self-attention mechanism:
+
+Attention(Q,K,V) = Softmax(QKᵀ/√dk)V
+
+This mechanism allows a token to gather information from all other tokens in a sequence and construct a contextual representation.
+
+However, an important question remains:
+
+> If self-attention is already capable of discovering relationships between words, why do Transformers use multiple attention mechanisms instead of a single one?
+
+The answer lies in the complexity of language.
+
+Natural language contains many different types of relationships simultaneously:
+
+* grammatical relationships
+* semantic relationships
+* ownership relationships
+* spatial relationships
+* temporal relationships
+* coreference relationships
+
+A single attention mechanism may struggle to model all of these simultaneously.
+
+To address this problem, Transformers introduce **Multi-Head Attention**.
+
+---
+
+# 6.1 Why One Attention Head Is Not Enough
+
+Consider the sentence:
+
+```text
+She saw the man with the telescope.
+```
+
+This sentence is ambiguous.
+
+Possible interpretation:
+
+```text
+The man was holding the telescope.
+```
+
+Strong relationship:
+
+```text
+man ↔ telescope
+```
+
+Alternative interpretation:
+
+```text
+She used a telescope to see the man.
+```
+
+Strong relationship:
+
+```text
+she ↔ telescope
+```
+
+A language model must determine which interpretation is correct from context.
+
+Now consider:
+
+```text
+The keys were on the table where Sarah left them.
+```
+
+Several relationships exist simultaneously:
+
+```text
+keys ↔ table
+```
+
+location
+
+```text
+keys ↔ Sarah
+```
+
+ownership/action
+
+```text
+them ↔ keys
+```
+
+coreference
+
+A single attention mechanism would be forced to represent all of these relationships simultaneously.
+
+This can limit its representational power.
+
+---
+
+# 6.2 The Main Idea
+
+Instead of learning one attention mechanism, we learn many attention mechanisms.
+
+Each attention mechanism receives its own set of learnable parameters.
+
+Instead of:
+
+```text
+WQ
+WK
+WV
+```
+
+we introduce:
+
+```text
+WQ1 WK1 WV1
+WQ2 WK2 WV2
+...
+WQh WKh WVh
+```
+
+where:
+
+```text
+h
+```
+
+denotes the number of attention heads.
+
+Each head independently learns its own notion of relevance.
+
+---
+
+# 6.3 Different Heads Learn Different Relationships
+
+During training, different attention heads often specialize in different tasks.
+
+For example:
+
+### Head 1
+
+May focus on grammatical relationships.
+
+```text
+subject ↔ verb
+```
+
+---
+
+### Head 2
+
+May focus on ownership.
+
+```text
+Jack ↔ phone
+```
+
+---
+
+### Head 3
+
+May focus on spatial relationships.
+
+```text
+phone ↔ desk
+```
+
+---
+
+### Head 4
+
+May focus on semantic similarity.
+
+```text
+Apple ↔ technology
+```
+
+---
+
+The model is not explicitly told to learn these relationships.
+
+Instead, they emerge naturally during training.
+
+This specialization is one of the major strengths of Multi-Head Attention.
+
+---
+
+# 6.4 Attention Within Each Head
+
+Each head performs the same computation derived in Chapter 5.
+
+For Head 1:
+
+```text
+Q1 = XWQ1
+K1 = XWK1
+V1 = XWV1
+```
+
+Attention is computed as:
+
+Attention₁ = Softmax(Q₁K₁ᵀ/√dk)V₁
+
+---
+
+For Head 2:
+
+```text
+Q2 = XWQ2
+K2 = XWK2
+V2 = XWV2
+```
+
+Attention is computed as:
+
+Attention₂ = Softmax(Q₂K₂ᵀ/√dk)V₂
+
+---
+
+The process continues for all heads:
+
+```text
+Head 1
+Head 2
+Head 3
+...
+Head h
+```
+
+All heads operate independently and can therefore be computed in parallel.
+
+---
+
+# 6.5 Why Split the Embedding Dimension?
+
+Suppose:
+
+```text
+d_model = 512
+```
+
+and:
+
+```text
+h = 8
+```
+
+The Transformer defines:
+
+```text
+dk = d_model / h
+```
+
+which gives:
+
+```text
+dk = 64
+```
+
+Each head therefore operates in a:
+
+```text
+64-dimensional
+```
+
+subspace.
+
+---
+
+For example:
+
+```text
+WQ1 ∈ ℝ^(512×64)
+WK1 ∈ ℝ^(512×64)
+WV1 ∈ ℝ^(512×64)
+```
+
+and similarly for all other heads.
+
+---
+
+Why not give every head the full 512 dimensions?
+
+Because then:
+
+```text
+8 heads × 512 dimensions
+```
+
+would dramatically increase:
+
+* memory usage
+* parameter count
+* computational cost
+
+without necessarily providing additional useful information.
+
+Instead, each head receives a smaller subspace:
+
+```text
+64 dimensions
+```
+
+and learns different features within that space.
+
+This keeps computational cost manageable while preserving expressive power.
+
+---
+
+# 6.6 Concatenating Head Outputs
+
+Suppose each head produces:
+
+```text
+Head1 ∈ ℝ^(seq_len × 64)
+Head2 ∈ ℝ^(seq_len × 64)
+...
+Head8 ∈ ℝ^(seq_len × 64)
+```
+
+We combine them using concatenation:
+
+```text
+Z =
+Concat(
+Head1,
+Head2,
+...
+Head8
+)
+```
+
+The resulting matrix has dimension:
+
+```text
+seq_len × 512
+```
+
+because:
+
+```text
+64 × 8 = 512
+```
+
+Concatenation preserves information from all attention heads.
+
+---
+
+# 6.7 Why Concatenation Instead of Addition?
+
+A natural question is:
+
+> Why not simply add the outputs of all heads?
+
+For example:
+
+```text
+Head1 + Head2 + ... + Head8
+```
+
+The problem is that addition would immediately mix and potentially destroy information learned by individual heads.
+
+Concatenation preserves:
+
+```text
+Head1 information
+Head2 information
+...
+Head8 information
+```
+
+separately.
+
+The model can then decide later how to combine them.
+
+---
+
+# 6.8 Output Projection
+
+After concatenation, we obtain:
+
+```text
+Z
+```
+
+containing information from all heads.
+
+However, this representation is simply a collection of independent attention outputs placed side-by-side.
+
+We therefore introduce an additional learnable matrix:
+
+```text
+WO
+```
+
+and compute:
+
+```text
+Z' = ZWO
+```
+
+---
+
+# 6.9 Why Is WO Necessary?
+
+Concatenation alone does not create interaction between attention heads.
+
+Suppose:
+
+```text
+Head1 → spatial relationship
+Head2 → ownership relationship
+Head3 → semantic relationship
+```
+
+These relationships are stored independently.
+
+The matrix:
+
+```text
+WO
+```
+
+learns how to combine them into a single coherent representation.
+
+Its role is to:
+
+* mix information across heads
+* create interactions between different relationships
+* produce a final embedding suitable for downstream layers
+
+Without:
+
+```text
+WO
+```
+
+the attention heads would remain isolated.
+
+---
+
+# 6.10 Complete Multi-Head Attention Pipeline
+
+The complete process is:
+
+```text
+Input Embeddings
+        ↓
+Linear Projections
+(Q1,K1,V1)
+(Q2,K2,V2)
+...
+(Qh,Kh,Vh)
+        ↓
+Independent Attention Computation
+        ↓
+Head1
+Head2
+...
+Headh
+        ↓
+Concatenation
+        ↓
+Z
+        ↓
+Output Projection WO
+        ↓
+Z'
+```
+
+The resulting representation:
+
+```text
+Z'
+```
+
+contains information gathered from multiple perspectives simultaneously.
+
+---
+
+# Key Insight
+
+A single attention mechanism attempts to model all linguistic relationships at once.
+
+Multi-Head Attention instead allows the model to learn several independent notions of relevance simultaneously.
+
+Different heads can specialize in:
+
+* syntax
+* semantics
+* ownership
+* spatial relationships
+* long-range dependencies
+* coreference
+
+The outputs of these heads are then combined into a unified representation.
+
+This dramatically increases the expressive power of the Transformer while maintaining computational efficiency.
+
+---
+
+# Summary
+
+In this chapter we introduced Multi-Head Attention.
+
+We showed that:
+
+1. Language contains multiple simultaneous relationships.
+2. A single attention head may struggle to represent all of them.
+3. Multi-Head Attention introduces multiple independent Q, K and V projections.
+4. Each head learns a different notion of relevance.
+5. Head outputs are concatenated rather than added.
+6. An output projection matrix WO combines information from all heads.
+7. All attention heads can be computed in parallel.
+
+Multi-Head Attention is one of the most important innovations in the Transformer architecture and is largely responsible for its ability to capture rich linguistic structure.
+
+The next chapter introduces Positional Encoding and explains how Transformers recover information about word order despite processing all tokens simultaneously.
+
 
 
